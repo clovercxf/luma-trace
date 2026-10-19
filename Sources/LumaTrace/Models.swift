@@ -168,6 +168,13 @@ enum SearchText {
     }
 }
 
+enum MediaSelection {
+    static func toggleAll(visibleIDs: Set<String>, selectedIDs: Set<String>) -> Set<String> {
+        guard !visibleIDs.isEmpty else { return selectedIDs }
+        return selectedIDs.isSuperset(of: visibleIDs) ? selectedIDs.subtracting(visibleIDs) : selectedIDs.union(visibleIDs)
+    }
+}
+
 enum DuplicatePolicy {
     static func rank(_ item: MediaItem) -> Double {
         let pixels = Double(item.width) * Double(item.height)

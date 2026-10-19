@@ -25,7 +25,11 @@ STAGE="$APP_ROOT/dmg-root"
 mkdir -p "$STAGE"
 ditto --norsrc --noextattr "$APP" "$STAGE/LumaTrace.app"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "LumaTrace" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
-echo "安装包已生成：$DMG"
-open -R "$DMG"
+if hdiutil create -volname "LumaTrace" -srcfolder "$STAGE" -ov -format UDZO "$DMG"; then
+  echo "安装包已生成：$DMG"
+  open -R "$DMG"
+else
+  echo "无法在此 Mac 环境创建 DMG；已保留 ZIP 安装包。需要可用的 macOS DiskManagement 服务。" >&2
+fi
+echo "ZIP 安装包已生成：$ZIP"

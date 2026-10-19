@@ -18,7 +18,7 @@ Open `LumaTrace-<version>-macOS-<architecture>.dmg`, then drag **LumaTrace** ont
 
 ## Browse and search
 
-Use **All Media**, **Photos**, **Videos**, **Motion Photos**, **Places**, **Time Travel**, and **Duplicates & Picks** in the sidebar. Search matches indexed labels, recognized text, and available descriptions. Results depend on the formats and metadata available to macOS.
+Use **All Media**, **Photos**, **Videos**, **Motion Photos**, **Places**, **Time Travel**, and **Duplicates & Picks** in the sidebar. The toolbar can group the current library by timeline, people-related recognition labels, or place. People grouping uses local scene labels such as person, family, and gathering; it does not identify named individuals. In selection mode, use **Select All Results** to select every item matching the current view and search. Results depend on the formats and metadata available to macOS.
 
 Click a thumbnail to open its preview. In the preview, swipe horizontally to move between items, pinch on the trackpad to zoom, drag to pan when zoomed, and use the filmstrip to choose another item. The top-right information button opens a closable details drawer. Use it to inspect metadata or add a place label. Full screen is optional.
 
@@ -40,7 +40,7 @@ LumaTrace groups exact duplicates and likely similar media separately. Suggestio
 
 ## Time Travel memories
 
-Create a memory film manually from **Time Travel**, or configure a daily time or selected weekdays in Settings. Only indexed, available media is used. Films are generated and stored locally. Scheduled generation may be delayed while the Mac is asleep, shut down, or logged out. Notifications require macOS permission.
+Create a memory film manually from **Time Travel**, or configure a daily time or selected weekdays in Settings. Open **Edit** on a film to change its title and select all, add, or remove source items; saving rebuilds the film. **Export / Download** saves a copy to a chosen location. Deletion asks for confirmation and removes only the generated film and its record, never the source photos or videos. Only indexed, available media is used. Films are generated and stored locally. Scheduled generation may be delayed while the Mac is asleep, shut down, or logged out. Notifications require macOS permission.
 
 ## Motion capture
 

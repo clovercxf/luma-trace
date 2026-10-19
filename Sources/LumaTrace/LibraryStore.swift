@@ -212,15 +212,25 @@ enum AnalysisPhase { case idle, running, paused, stopping, stopped }
         }
         return items.sorted { $0.date > $1.date }
     }
-    var sections: [(String, [MediaItem])] {
+    var sections: [(String, [MediaItem])] { sections(grouping: "timeline") }
+    func sections(grouping: String) -> [(String, [MediaItem])] {
         let formatter = DateFormatter(); formatter.locale = Localization.language.locale; formatter.setLocalizedDateFormatFromTemplate("yMMMM")
-        let grouped = Dictionary(grouping: visible) { selection == "places" ? $0.location : formatter.string(from: $0.date) }
+        let grouped = Dictionary(grouping: visible) { item -> String in
+            switch grouping {
+            case "places": return item.location
+            case "people":
+                let text = item.searchableText.lowercased()
+                let terms = ["person", "people", "family", "familia", "familia", "baby", "child", "wedding", "人", "人物", "聚会", "家人", "孩子", "婚礼", "朋友", "家庭"]
+                return terms.contains(where: { text.contains($0) }) ? tr("人物与聚会") : tr("其他影像")
+            default: return formatter.string(from: item.date)
+            }
+        }
         return grouped.map { ($0.key, $0.value) }.sorted { ($0.1.first?.date ?? .distantPast) > ($1.1.first?.date ?? .distantPast) }
     }
-    func save() {
-        guard !isReadOnly else { return }
-        do { try JSONEncoder().encode(state).write(to: LibraryPaths.index, options: .atomic) }
-        catch { errorMessage = "资料库保存失败：\(error.localizedDescription)" }
+    @discardableResult func save() -> Bool {
+        guard !isReadOnly else { return false }
+        do { try JSONEncoder().encode(state).write(to: LibraryPaths.index, options: .atomic); return true }
+        catch { errorMessage = "资料库保存失败：\(error.localizedDescription)"; return false }
     }
     func addRoot() {
         guard !isReadOnly else { return }
@@ -448,6 +458,43 @@ enum AnalysisPhase { case idle, running, paused, stopping, stopped }
 }
 
 extension LibraryStore {
+    func deleteMemory(_ reel: MemoryReel) {
+        guard !isReadOnly, let index = state.memories.firstIndex(where: { $0.id == reel.id }) else { return }
+        let removed = state.memories.remove(at: index)
+        guard save() else { state.memories.insert(removed, at: min(index, state.memories.count)); return }
+        try? FileManager.default.removeItem(at: URL(fileURLWithPath: reel.path))
+    }
+
+    func editMemory(_ reel: MemoryReel, title: String, itemIDs: Set<String>) async -> Bool {
+        guard !isReadOnly, !memoryBusy, !itemIDs.isEmpty,
+              let index = state.memories.firstIndex(where: { $0.id == reel.id }) else { return false }
+        let items = state.items
+        memoryBusy = true
+        memoryStatus = "正在更新回忆影片…"
+        defer { memoryBusy = false }
+        do {
+            guard var updated = try await memoryBuilder.build(items: items, selectedIDs: itemIDs, title: title) else {
+                memoryStatus = "所选素材已不可用，请重新选择。"
+                return false
+            }
+            let oldPath = state.memories[index].path
+            updated.id = reel.id
+            updated.created = reel.created
+            state.memories[index] = updated
+            guard save() else {
+                state.memories[index] = reel
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: updated.path))
+                return false
+            }
+            if oldPath != updated.path { try? FileManager.default.removeItem(at: URL(fileURLWithPath: oldPath)) }
+            memoryStatus = "回忆影片已更新"
+            return true
+        } catch {
+            memoryStatus = "回忆更新失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
     func generateMemoryIfDue(force: Bool = false) {
         guard !isReadOnly, !memoryBusy else { return }
         if !force {

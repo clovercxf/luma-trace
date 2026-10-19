@@ -2,6 +2,22 @@
 
 LumaTrace release history / LumaTrace 版本记录。
 
+## 1.1R — 2026-10-20
+
+### English
+
+- Added Select All / Deselect All for the current media results.
+- Added photo-library grouping by timeline, people-related labels, and place.
+- Added memory editing: rename a film and add or remove source media, then rebuild it.
+- Added safe export to a user-chosen location and confirmed deletion of generated memory films without touching originals.
+
+### 简体中文
+
+- 增加当前影像结果的全选和取消全选。
+- 相册增加按时间轴、人物相关标签和地点分组浏览。
+- 时光记忆支持改名、添加或移除素材并重新生成影片。
+- 支持导出到指定位置；删除回忆前会确认，且只删除生成影片和记录，不影响原始影像。
+
 ## 0.4.6 — 2026-10-20
 
 ### English

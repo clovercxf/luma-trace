@@ -9,11 +9,11 @@
 ### Features
 
 - Index media from multiple folders you choose, with per-folder status and refresh controls.
-- Browse by timeline and location; see map markers when GPS metadata is available.
+- Browse by timeline and location; see map markers when GPS metadata is available. Group the library by timeline, people-related labels, or place, and select all current results for batch actions.
 - Search local labels, recognized text, and available descriptions.
 - Analyze sampled or individual video frames.
 - Review exact-duplicate and similar-media suggestions with reasons; nothing is deleted automatically.
-- Create local memory films on demand or on a daily/weekly schedule.
+- Create local memory films on demand or on a daily/weekly schedule. Edit a film's title and media, export a copy, or delete generated films safely.
 - Preview media with trackpad zoom, swipe navigation, a filmstrip, and a closable information drawer.
 - Choose English, Simplified Chinese, or Spanish.
 
@@ -32,7 +32,7 @@ Requirements: macOS 14+, Xcode Command Line Tools with Swift 5.9 or later.
 ./build-app.command
 ```
 
-The build creates versioned files such as `LumaTrace-0.4.6-macOS-arm64.dmg` and a matching ZIP archive in this folder. The local app is ad hoc signed, not Developer ID signed or notarized, so Gatekeeper may show a warning. See [TESTING.md](TESTING.md) for test scope and known limits.
+The build creates versioned files such as `LumaTrace-1.1R-macOS-arm64.dmg` and a matching ZIP archive in this folder. The local app is ad hoc signed, not Developer ID signed or notarized, so Gatekeeper may show a warning. See [TESTING.md](TESTING.md) for test scope and known limits.
 
 ### Project documents
 
@@ -54,11 +54,12 @@ The build creates versioned files such as `LumaTrace-0.4.6-macOS-arm64.dmg` and 
 ### 功能
 
 - 为你选择的多个文件夹建立索引，并显示每个位置的状态与刷新操作。
+- 支持按时间轴、人物相关标签和地点分组浏览，也可全选当前结果执行批量操作。
 - 按时间轴和地点浏览；有 GPS 元数据时在地图上显示标记。
 - 搜索本地标签、识别文字和可用的画面描述。
 - 对视频抽帧分析，也可选择逐帧深度分析。
 - 查看完全重复和相似影像建议及原因；应用不会自动删除文件。
-- 手动生成本地回忆短片，或按每天/每周的时间计划生成。
+- 手动生成本地回忆短片，或按每天/每周的时间计划生成；可编辑名称、添加或移除素材、导出影片副本和删除生成的回忆。
 - 使用触控板缩放、滑动切换、缩略图胶片栏和可关闭的信息抽屉预览影像。
 - 支持简体中文、English 和 Español。
 
@@ -77,7 +78,7 @@ The build creates versioned files such as `LumaTrace-0.4.6-macOS-arm64.dmg` and 
 ./build-app.command
 ```
 
-构建会在本目录生成带版本号和架构的文件，例如 `LumaTrace-0.4.6-macOS-arm64.dmg` 及对应 ZIP。本地应用使用临时签名，尚未使用 Developer ID 签名或公证，因此 Gatekeeper 可能显示安全提示。测试范围和已知限制见 [TESTING.md](TESTING.md)。
+构建会在本目录生成带版本号和架构的文件，例如 `LumaTrace-1.1R-macOS-arm64.dmg` 及对应 ZIP。本地应用使用临时签名，尚未使用 Developer ID 签名或公证，因此 Gatekeeper 可能显示安全提示。测试范围和已知限制见 [TESTING.md](TESTING.md)。
 
 ### 项目文档
 

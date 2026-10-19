@@ -10,16 +10,20 @@ DOCS=PASS
 TESTS=FAIL
 BUILD=FAIL
 DMG=FAIL
+ZIP=FAIL
 
 for required in README.md USER_GUIDE.md USER_GUIDE.zh-CN.md CHANGELOG.md LICENSE PRIVACY.md RELEASE_NAMING.md; do
   if [[ ! -s "$required" ]]; then DOCS=FAIL; fi
 done
 if ! rg -q '## English' README.md || ! rg -q '## 简体中文' README.md || ! rg -q 'Copyright.*Clover F' LICENSE || ! rg -q '事先书面许可' LICENSE; then DOCS=FAIL; fi
 if [[ "$DOCS" == PASS ]]; then echo "Documentation and rights checks: PASS"; fi
+VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PWD/Info.plist")
+BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$PWD/Info.plist")
 
 if ./run-tests.command >"$TEST_LOG" 2>&1; then TESTS=PASS; else TESTS=FAIL; fi
 if ./build-app.command >"$BUILD_LOG" 2>&1; then BUILD=PASS; else BUILD=FAIL; fi
-DMG_FILE=$(find "$PWD" -maxdepth 1 -name 'LumaTrace-*-macOS-*.dmg' -print -quit)
+ARCHS=$(uname -m | sed 's/arm64/arm64/; s/x86_64/x86_64/')
+DMG_FILE="$PWD/LumaTrace-${VERSION}-macOS-${ARCHS}.dmg"
 if [[ -n "$DMG_FILE" && -s "$DMG_FILE" ]]; then
   MOUNT="$LOG_ROOT/mount"
   mkdir -p "$MOUNT"
@@ -28,17 +32,24 @@ if [[ -n "$DMG_FILE" && -s "$DMG_FILE" ]]; then
     hdiutil detach "$MOUNT" >>"$BUILD_LOG" 2>&1 || true
   fi
 fi
+ZIP_FILE="$PWD/LumaTrace-${VERSION}-macOS-${ARCHS}.zip"
+if [[ -s "$ZIP_FILE" ]]; then
+  ZIP_ROOT="$LOG_ROOT/zip"
+  mkdir -p "$ZIP_ROOT"
+  if ditto -x -k "$ZIP_FILE" "$ZIP_ROOT" >>"$BUILD_LOG" 2>&1 && [[ -f "$ZIP_ROOT/LumaTrace.app/Contents/MacOS/LumaTrace" && -f "$ZIP_ROOT/LumaTrace.app/Contents/Resources/PrivacyPolicy.md" ]] && /usr/bin/codesign --verify --deep --strict "$ZIP_ROOT/LumaTrace.app" >>"$BUILD_LOG" 2>&1; then ZIP=PASS; fi
+fi
 
 TEST_SUMMARY=$(rg 'Test run with .* in .* suite' "$TEST_LOG" | sed 's/^↳ //' | tr '\n' '; ')
 TEST_FAILURES=$(awk '/^✘ Test .* failed after/ {n++} END {print n+0}' "$TEST_LOG")
 TEST_DETAILS=$(rg '^✘ Test .* (recorded an issue|failed after)' "$TEST_LOG" | sed 's/^[^:]*: //' | tr '\n' '; ')
-BUILD_NOTES=$(rg -m 3 'warning:|error:' "$BUILD_LOG" | sed 's/^[[:space:]]*//' | tr '\n' '; ')
+TEST_SKIPS=$(rg 'SKIP_TEST_RUNTIME_LIMIT:' "$TEST_LOG" | sed 's/^[^:]*: //' | tr '\n' '; ')
+BUILD_NOTES=$(rg -m 5 'warning:|error:|DMG' "$BUILD_LOG" | sed 's/^[[:space:]]*//' | tr '\n' '; ')
 DATE=$(date '+%Y-%m-%d %H:%M %Z')
 cat > "$OUT" <<EOF
 # LumaTrace Release QA Report / 发布前测试报告
 
 - Run time / 测试时间: $DATE
-- App version / 应用版本: 0.4.6 (18)
+- App version / 应用版本: $VERSION ($BUILD_NUMBER)
 - Host / 测试环境: $(sw_vers -productName) $(sw_vers -productVersion), $(uname -m)
 
 ## Results / 结果
@@ -46,22 +57,25 @@ cat > "$OUT" <<EOF
 | Area / 项目 | Result / 结果 |
 |---|---|
 | Documentation, bilingual content, and Clover F proprietary notice / 双语文档与版权限制 | $DOCS |
-| Automated Swift tests / Swift 自动化测试 | $TESTS ($TEST_FAILURES test or suite failure records) |
+| Automated Swift tests / Swift 自动化测试 | $TESTS ($TEST_FAILURES failures; runtime-limited checks: ${TEST_SKIPS:-none}) |
 | Release app build / Release 应用构建 | $BUILD |
 | DMG mount, app bundle, and code-signature integrity / DMG 挂载、应用包与签名完整性 | $DMG |
+| ZIP extraction, app bundle, and code-signature integrity / ZIP 解压、应用包与签名完整性 | $ZIP |
 | Windows package / Windows 安装包 | NOT BUILT — current target is macOS-only / 未构建：当前项目仅支持 macOS |
 
 Test suite summaries / 测试套件摘要: $TEST_SUMMARY
 
 Test failures / 测试失败详情: ${TEST_DETAILS:-None / 无}
 
+Environment-limited checks / 环境受限检查: ${TEST_SKIPS:-None / 无}
+
 Build diagnostics / 构建诊断: ${BUILD_NOTES:-None / 无}
 
 ## Coverage / 覆盖范围
 
-Automated suites exercise folder navigation and multi-root scanning, pause/resume/stop, incremental previews and search, duplicate recommendations, metadata and location handling, retry/read-only/corrupt-library workflows, multilingual search, scheduled memories, video sampling modes, camera lifecycle safety, local-model validation, and map coordinate clustering.
+Automated suites exercise folder navigation and multi-root scanning, pause/resume/stop, incremental previews and search, duplicate recommendations, metadata and location handling, retry/read-only/corrupt-library workflows, multilingual search, scheduled and editable memories, select-all and library grouping, video sampling modes, camera lifecycle safety, local-model validation, and map coordinate clustering.
 
-自动化套件覆盖文件夹导航与多目录扫描、暂停/继续/停止、增量预览与搜索、重复影像建议、元数据和位置、重试/只读/损坏资料库、多语言搜索、定时回忆、视频抽帧模式、相机生命周期、本机模型校验及地图坐标聚合。
+自动化套件覆盖文件夹导航与多目录扫描、暂停/继续/停止、增量预览与搜索、重复影像建议、元数据和位置、重试/只读/损坏资料库、多语言搜索、定时与编辑回忆、影像全选和分类、视频抽帧模式、相机生命周期、本机模型校验及地图坐标聚合。
 
 Platform limitation / 平台限制: the current SwiftUI/AppKit/AVFoundation/MapKit app targets macOS 14 and cannot produce a Windows installer. A separate Windows implementation is required; no invalid Windows artifact was generated.
 
@@ -73,11 +87,11 @@ Manual follow-up still required / 仍需人工验证: first-launch consent and l
 
 EOF
 
-if [[ "$DOCS" == PASS && "$TESTS" == PASS && "$BUILD" == PASS && "$DMG" == PASS ]]; then
+if [[ "$DOCS" == PASS && "$TESTS" == PASS && "$BUILD" == PASS && "$DMG" == PASS && "$ZIP" == PASS ]]; then
   echo "Overall: macOS package validation PASS; Windows port is a separate implementation task." >> "$OUT"
 else
-  echo "Overall: NEEDS REVIEW — see test and build diagnostics above; environment-dependent media tests may require a fully provisioned macOS host." >> "$OUT"
+  echo "Overall: NEEDS REVIEW — see test, package, and build diagnostics above. A missing DiskManagement service prevents DMG creation; Windows requires a separate implementation." >> "$OUT"
 fi
 echo "QA report: $OUT"
-echo "Status: docs=$DOCS tests=$TESTS build=$BUILD dmg=$DMG"
-[[ "$DOCS" == PASS && "$TESTS" == PASS && "$BUILD" == PASS && "$DMG" == PASS ]]
+echo "Status: docs=$DOCS tests=$TESTS build=$BUILD dmg=$DMG zip=$ZIP"
+[[ "$DOCS" == PASS && "$TESTS" == PASS && "$BUILD" == PASS && "$DMG" == PASS && "$ZIP" == PASS ]]

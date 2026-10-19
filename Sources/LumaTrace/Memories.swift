@@ -53,9 +53,13 @@ struct MemoryReel: Codable, Identifiable, Sendable {
     var path: String
     var from: Date
     var to: Date
-    var title: String { tr(kind == "anniversary" ? "往年今日" : kind == "month" ? "这个月的记忆" : "时光片段") }
+    var customTitle: String? = nil
+    var title: String { customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? customTitle! : tr(kind == "anniversary" ? "往年今日" : kind == "month" ? "这个月的记忆" : "时光片段") }
 }
 enum MemorySelection {
+    static func custom(_ items: [MediaItem], selectedIDs: Set<String>) -> [MediaItem] {
+        items.filter { $0.isCurrentOnDisk && selectedIDs.contains($0.id) }.sorted { $0.date < $1.date }
+    }
     static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)"
@@ -91,12 +95,20 @@ enum MemorySelection {
     }
 }
 actor MemoryBuilder {
-    func build(items: [MediaItem], now: Date = Date(), language: AppLanguage = Localization.language, directory: URL = LibraryPaths.memories) async throws -> MemoryReel? {
-        let (kind, chosen) = MemorySelection.select(items.filter(\.isCurrentOnDisk), now: now)
+    func build(items: [MediaItem], selectedIDs: Set<String>? = nil, title: String? = nil, now: Date = Date(), language: AppLanguage = Localization.language, directory: URL = LibraryPaths.memories) async throws -> MemoryReel? {
+        let available = items.filter(\.isCurrentOnDisk)
+        let kind: String
+        let chosen: [MediaItem]
+        if let selectedIDs {
+            kind = "custom"
+            chosen = MemorySelection.custom(available, selectedIDs: selectedIDs)
+        } else {
+            (kind, chosen) = MemorySelection.select(available, now: now)
+        }
         guard !chosen.isEmpty else { return nil }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let id = UUID().uuidString
-        let target = directory.appendingPathComponent("TimeImprint-\(MemorySelection.dayKey(now))-\(id).mp4")
+        let target = directory.appendingPathComponent("LumaTrace-Memory-\(MemorySelection.dayKey(now))-\(id).mp4")
         let temporary = directory.appendingPathComponent(".\(id).mp4")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let writer = try AVAssetWriter(outputURL: temporary, fileType: .mp4)
@@ -176,7 +188,7 @@ actor MemoryBuilder {
             try FileManager.default.moveItem(at: temporary, to: target)
             try? Data(error.localizedDescription.utf8).write(to: directory.appendingPathComponent("music-fallback.log"), options: .atomic)
         }
-        return MemoryReel(id: id, created: now, kind: kind, itemIDs: chosen.map(\.id), path: target.path, from: chosen.first!.date, to: chosen.last!.date)
+        return MemoryReel(id: id, created: now, kind: kind, itemIDs: chosen.map(\.id), path: target.path, from: chosen.first!.date, to: chosen.last!.date, customTitle: title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? title?.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
     }
     private func failure(_ message: String) -> NSError { NSError(domain: "TimeImprint", code: 5, userInfo: [NSLocalizedDescriptionKey: message]) }
 }

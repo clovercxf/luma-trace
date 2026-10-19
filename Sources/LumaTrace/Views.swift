@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import MapKit
 import UserNotifications
+import UniformTypeIdentifiers
 
 // Explicit wrapper alias supports SDKs that also export a State macro.
 typealias StoredState<Value> = SwiftUI.State<Value>
@@ -166,6 +167,7 @@ struct ContentView: View {
     @StoredState private var folderQuery = ""
     @StoredState private var locationEditor = false
     @StoredState private var selectionMode = false
+    @StoredState private var grouping = "timeline"
     @FocusState private var gridFocused: Bool
     private var route: Binding<String?> {
         Binding(get: { store.selection }, set: { if let key = $0 { store.selectSection(key) } })
@@ -227,6 +229,12 @@ struct ContentView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if showsLibrary {
                         if selectionMode {
+                            Button {
+                                let visibleIDs = Set(store.visible.map(\.id))
+                                store.selectedIDs = MediaSelection.toggleAll(visibleIDs: visibleIDs, selectedIDs: store.selectedIDs)
+                            } label: {
+                                Label(store.selectedIDs.isSuperset(of: Set(store.visible.map(\.id))) && !store.visible.isEmpty ? tr("取消全选") : tr("全选当前结果"), systemImage: "checkmark.circle.fill")
+                            }
                             Button { locationEditor = true } label: { Label(tr("为所选影像添加位置"), systemImage: "mappin.and.ellipse") }
                                 .disabled(store.selectedIDs.isEmpty)
                             Button(tr("完成选择")) { selectionMode = false; store.selectedIDs = [] }
@@ -239,6 +247,12 @@ struct ContentView: View {
                             Image(systemName: "photo").foregroundStyle(.secondary)
                         }.help(tr("缩略图大小"))
                         Menu {
+                            Picker(tr("分组方式"), selection: $grouping) {
+                                Text(tr("时间轴")).tag("timeline")
+                                Text(tr("人物")).tag("people")
+                                Text(tr("地点")).tag("places")
+                            }
+                            Divider()
                             Picker(tr("排序"), selection: $oldestFirst) {
                                 Text(tr("最新优先")).tag(false)
                                 Text(tr("最早优先")).tag(true)
@@ -321,7 +335,7 @@ struct ContentView: View {
         } else {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
-                ForEach(oldestFirst ? store.sections.reversed().map { $0 } : store.sections, id: \.0) { section in
+                ForEach(oldestFirst ? store.sections(grouping: grouping).reversed().map { $0 } : store.sections(grouping: grouping), id: \.0) { section in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(section.0).font(.title3.weight(.semibold)).padding(.horizontal, 4)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: thumbnailSize), spacing: 4)], spacing: 4) {
@@ -1283,6 +1297,10 @@ struct BrandMark: View {
 struct MemoriesView: View {
     @ObservedObject var store: LibraryStore
     @StoredState private var playing: MemoryReel?
+    @StoredState private var editing: MemoryReel?
+    @StoredState private var deleteTarget: MemoryReel?
+    @StoredState private var confirmDelete = false
+    @StoredState private var exportError: String?
     private var scheduledTime: String {
         let date = Calendar.current.date(bySettingHour: store.state.memoryPreferences.hour, minute: store.state.memoryPreferences.minute, second: 0, of: Date()) ?? Date()
         let formatter = DateFormatter(); formatter.locale = Localization.language.locale; formatter.timeStyle = .short
@@ -1335,7 +1353,13 @@ struct MemoriesView: View {
                         }
                         HStack { Image(systemName: "sparkles").foregroundStyle(accent); Text(reel.title).font(.title3.bold()); Spacer(); Text(localizedDate(reel.created, time: true)).font(.caption).foregroundStyle(.secondary) }
                         Text(tr("\(reel.itemIDs.count) 个瞬间 · \(localizedDate(reel.from)) — \(localizedDate(reel.to))")).font(.caption).foregroundStyle(.secondary)
-                        HStack { Button { playing = reel } label: { Label(tr("播放回忆"), systemImage: "play.fill") }.buttonStyle(.borderedProminent); Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: reel.path)]) } label: { Label(tr("显示影片文件"), systemImage: "folder") } }
+                        HStack {
+                            Button { playing = reel } label: { Label(tr("播放回忆"), systemImage: "play.fill") }.buttonStyle(.borderedProminent)
+                            Button { editing = reel } label: { Label(tr("编辑"), systemImage: "pencil") }.disabled(store.isReadOnly || store.memoryBusy)
+                            Button { export(reel) } label: { Label(tr("导出 / 下载"), systemImage: "square.and.arrow.down") }
+                            Button(role: .destructive) { deleteTarget = reel; confirmDelete = true } label: { Label(tr("删除"), systemImage: "trash") }.disabled(store.isReadOnly)
+                            Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: reel.path)]) } label: { Label(tr("显示影片文件"), systemImage: "folder") }
+                        }
                     }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(paper).clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 }.frame(maxWidth: .infinity, alignment: .leading)
@@ -1344,6 +1368,79 @@ struct MemoriesView: View {
         }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).sheet(item: $playing) { reel in
             VStack { HStack { Text(reel.title).font(.headline); Spacer(); Button(tr("完成")) { playing = nil } }; MovieView(path: reel.path, seekRequest: UUID(uuidString: reel.id)).frame(width: 800, height: 450) }.padding(20)
         }
+        .sheet(item: $editing) { reel in MemoryEditSheet(store: store, reel: reel) }
+        .confirmationDialog(tr("删除这段回忆？"), isPresented: $confirmDelete, presenting: deleteTarget) { reel in
+            Button(tr("删除回忆和影片"), role: .destructive) { store.deleteMemory(reel); deleteTarget = nil }
+            Button(tr("取消"), role: .cancel) { deleteTarget = nil }
+        } message: { _ in Text(tr("只会删除 LumaTrace 生成的回忆影片和记录，不会删除原始照片或视频。")) }
+        .alert(tr("导出失败"), isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button(tr("完成")) { exportError = nil }
+        } message: { Text(exportError ?? "") }
+    }
+
+    private func export(_ reel: MemoryReel) {
+        let panel = NSSavePanel()
+        panel.title = tr("导出回忆影片")
+        panel.nameFieldStringValue = URL(fileURLWithPath: reel.path).lastPathComponent
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        let temporary = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString)-\(destination.lastPathComponent)")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        do {
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: reel.path), to: temporary)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: destination)
+            }
+        } catch { exportError = error.localizedDescription }
+    }
+}
+
+private struct MemoryEditSheet: View {
+    @ObservedObject var store: LibraryStore
+    let reel: MemoryReel
+    @Environment(\.dismiss) private var dismiss
+    @StoredState private var title = ""
+    @StoredState private var selectedIDs = Set<String>()
+    @StoredState private var saving = false
+    private var items: [MediaItem] { store.state.items.filter(\.isCurrentOnDisk).sorted { $0.date > $1.date } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(tr("编辑时光记忆")).font(.title2.bold())
+            TextField(tr("回忆名称"), text: $title)
+            HStack {
+                Text(tr("选择素材 · 已选 {0} 项").replacingOccurrences(of: "{0}", with: "\(selectedIDs.count)")).foregroundStyle(.secondary)
+                Spacer()
+                Button(tr("全选")) { selectedIDs = Set(items.map(\.id)) }
+                Button(tr("全不选")) { selectedIDs.removeAll() }
+            }.font(.callout)
+            List(items) { item in
+                Button {
+                    if selectedIDs.contains(item.id) { selectedIDs.remove(item.id) } else { selectedIDs.insert(item.id) }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(selectedIDs.contains(item.id) ? accent : .secondary)
+                        Thumbnail(item: item).frame(width: 54, height: 42).clipShape(RoundedRectangle(cornerRadius: 5))
+                        VStack(alignment: .leading, spacing: 2) { Text(item.name).lineLimit(1); Text(localizedDate(item.date)).font(.caption).foregroundStyle(.secondary) }
+                        Spacer()
+                        if item.isVideo { Image(systemName: "film").foregroundStyle(.secondary) }
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }.listStyle(.plain)
+            HStack {
+                Button(tr("取消")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button {
+                    saving = true
+                    Task { if await store.editMemory(reel, title: title, itemIDs: selectedIDs) { dismiss() }; saving = false }
+                } label: { if saving { ProgressView().controlSize(.small) } else { Text(tr("保存并重新生成")) } }
+                    .buttonStyle(.borderedProminent).disabled(saving || store.isReadOnly || selectedIDs.isEmpty)
+            }
+        }.padding(20).frame(minWidth: 540, minHeight: 600)
+        .onAppear { title = reel.title; selectedIDs = Set(reel.itemIDs) }
     }
 }
 
