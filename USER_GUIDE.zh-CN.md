@@ -12,9 +12,9 @@ LumaTrace 是 macOS 本地 AI 相册。它读取你选择的照片和视频文�
 
 索引、缩略图和生成的回忆视频保存在本机。移除监测文件夹只会停止监测，不会删除原文件或现有索引。
 
-## 从 DMG 安装
+## 安装
 
-打开 `LumaTrace-<版本>-macOS-<架构>.dmg`，将 **LumaTrace** 拖到 **Applications（应用程序）**。当前本地构建使用临时签名且未公证，macOS 可能要求你在“隐私与安全性”中确认首次打开。请勿安装来源不可信的应用。
+如果拿到 DMG，打开 `LumaTrace-<版本>-macOS-<架构>.dmg`，将 **LumaTrace** 拖到 **Applications（应用程序）**。如果拿到 ZIP，解压后将 **LumaTrace.app** 移入 **Applications（应用程序）**。本地构建使用临时签名且未公证，macOS 可能要求你在“隐私与安全性”中确认首次打开。请勿安装来源不可信的应用。
 
 ## 浏览与搜索
 

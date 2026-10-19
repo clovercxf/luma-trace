@@ -12,9 +12,9 @@ LumaTrace organizes local photos and videos while leaving the original files whe
 
 The app stores its searchable index and thumbnails locally. It does not move or rewrite original media. Removing a monitored folder stops scanning it but keeps its source files and existing library records.
 
-## Install from the DMG
+## Install
 
-Open `LumaTrace-<version>-macOS-<architecture>.dmg`, then drag **LumaTrace** onto **Applications**. The distributed local build is ad hoc signed and not notarized, so macOS may require you to confirm the first launch in Privacy & Security. Do not install builds from sources you do not trust.
+If you have a DMG, open `LumaTrace-<version>-macOS-<architecture>.dmg` and drag **LumaTrace** onto **Applications**. For the ZIP package, open the archive and move **LumaTrace.app** into **Applications**. Local builds are ad hoc signed and not notarized, so macOS may require you to confirm the first launch in Privacy & Security. Do not install builds from sources you do not trust.
 
 ## Browse and search
 
