@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "LumaTrace";
+"CFBundleName" = "LumaTrace";
+"NSCameraUsageDescription" = "Capture motion photos with the camera. Photos and videos are saved on this Mac.";

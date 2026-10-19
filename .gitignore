@@ -1,0 +1,8 @@
+.build/
+.build-cache/
+.DS_Store
+*.app/
+*.zip
+*.pkg
+DerivedData/
+.swiftpm/
