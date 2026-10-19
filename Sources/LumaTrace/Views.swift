@@ -1,13 +1,162 @@
+Warning: truncated output (original token count: 22444)
+Total output lines: 1388
+
 import SwiftUI
 import AppKit
 import AVFoundation
 import MapKit
+import UserNotifications
 
 // Explicit wrapper alias supports SDKs that also export a State macro.
 typealias StoredState<Value> = SwiftUI.State<Value>
 
 private let accent = Color(red: 0.14, green: 0.42, blue: 0.99)
 private let paper = Color(nsColor: .controlBackgroundColor)
+
+struct PrivacyWelcomeView: View {
+    var onAccept: () -> Void
+    @StoredState private var accepted = false
+    @StoredState private var showDetails = false
+    @StoredState private var showPolicy = false
+    var body: some View {
+        VStack(spacing: 22) {
+            Image(systemName: "photo.stack")
+                .font(.system(size: 42, weight: .medium))
+                .foregroundStyle(accent)
+                .frame(width: 82, height: 82)
+                .background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 24))
+            VStack(spacing: 8) {
+                Text(tr("LumaTrace")).font(.system(size: 30, weight: .bold, design: .rounded))
+                Text(tr("Your memories stay yours.")).font(.title3).foregroundStyle(.secondary)
+            }
+            HStack(alignment: .top, spacing: 14) {
+                privacyPoint("lock.shield", "Private by design", "Your library, thumbnails, and memories stay on this Mac.")
+                privacyPoint("hand.raised", "You choose access", "Folders, camera, and notifications are requested only when you use those features.")
+                privacyPoint("network", "Clear about network use", "Maps and place search use their providers; your photos are not sent with them.")
+            }
+            DisclosureGroup(tr("What LumaTrace accesses and why"), isExpanded: $showDetails) {
+                Text(tr("LumaTrace reads only folders you choose. macOS asks you to grant access when you add a folder. Camera access is requested only when you open motion capture, and notifications only when you enable memory reminders. OpenStreetMap receives map tile requests; Apple Maps receives place-search text. Optional Ollama runs on this Mac. No account or LumaTrace cloud is used."))
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
+            }.padding(14).background(paper, in: RoundedRectangle(cornerRadius: 12))
+            HStack(spacing: 10) {
+                Toggle(tr("I have read and agree to the Privacy Policy"), isOn: $accepted).toggleStyle(.checkbox)
+                Spacer()
+                Button(tr("Read full Privacy Policy")) { showPolicy = true }.buttonStyle(.link)
+            }
+            HStack {
+                Label(tr("Published by Clover F"), systemImage: "checkmark.seal")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(tr("Agree & Continue"), action: onAccept)
+                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(!accepted)
+            }
+        }
+        .padding(34).frame(maxWidth: 780).background(Color(nsColor: .windowBackgroundColor))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showPolicy) { PrivacyPolicySheet().frame(minWidth: 620, minHeight: 560) }
+    }
+    private func privacyPoint(_ symbol: String, _ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: symbol).font(.title2).foregroundStyle(accent)
+            Text(tr(title)).font(.headline)
+            Text(tr(detail)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.frame(maxWidth: .infinity, minHeight: 126, alignment: .topLeading).padding(14)
+            .background(paper, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct PrivacyPolicySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @StoredState private var policy = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(tr("LumaTrace Privacy Policy")).font(.title2.bold())
+                Spacer()
+                Button(tr("Done")) { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            ScrollView {
+                Text(policy.isEmpty ? tr("Privacy policy could not be loaded.") : policy)
+                    .font(.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }.background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .padding(20)
+        .onAppear {
+            if let url = Bundle.main.url(forResource: "PrivacyPolicy", withExtension: "md"),
+               let text = try? String(contentsOf: url, encoding: .utf8) { policy = text }
+        }
+    }
+}
+
+struct PrivacyPermissionsView: View {
+    @ObservedObject var store: LibraryStore
+    @StoredState private var notificationStatus = "…"
+    @StoredState private var cameraStatus = ""
+    private var folderStatus: (String, Bool) {
+        guard !store.state.roots.isEmpty else { return (tr("No folders selected yet"), true) }
+        let inaccessible = store.state.roots.filter { !FileManager.default.isReadableFile(atPath: $0) }
+        if inaccessible.isEmpty { return (tr("All selected folders are accessible"), true) }
+        return (tr("{0} folder(s) need attention").replacingOccurrences(of: "{0}", with: String(inaccessible.count)), false)
+    }
+    var body: some View {
+        Section(tr("Privacy & Permissions")) {
+            permissionRow("externaldrive", tr("Photo and video folders"), folderStatus.0, folderStatus.1) {
+                Button(tr("Add or review folders")) { store.addRoot() }.disabled(store.isReadOnly)
+            }
+            permissionRow("camera", tr("Camera"), cameraStatus, cameraStatus == tr("Allowed")) {
+                if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+                    Text(tr("Requested when used")).font(.caption).foregroundStyle(.secondary)
+                } else { Button(tr("System Settings")) { openPrivacyPane("Privacy_Camera") } }
+            }
+            permissionRow("bell", tr("Memory notifications"), notificationStatus, notificationStatus == tr("Allowed")) {
+                if notificationStatus == tr("Not requested") || notificationStatus == tr("Denied") {
+                    Button(notificationStatus == tr("Denied") ? tr("System Settings") : tr("Allow notifications")) {
+                        if notificationStatus == tr("Denied") { openPrivacyPane("Privacy_Notifications") }
+                        else { store.enableMemoryNotifications(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { refresh() } }
+                    }
+                } else { Button(tr("Check again")) { refresh() } }
+            }
+            Text(tr("macOS controls these permissions. LumaTrace asks only when you add a folder, start camera capture, or enable reminders. Folder access is granted to the locations you select; the app does not require Full Disk Access."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .onAppear(perform: refresh)
+    }
+    private func permissionRow<Trailing: View>(_ symbol: String, _ title: String, _ detail: String, _ allowed: Bool, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol).frame(width: 22).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.body.weight(.medium))
+                Label(detail, systemImage: allowed ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .font(.caption).foregroundStyle(allowed ? .green : .orange)
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }.padding(.vertical, 4)
+    }
+    private func refresh() {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        cameraStatus = switch status {
+        case .authorized: tr("Allowed")
+        case .denied, .restricted: tr("Denied")
+        case .notDetermined: tr("Requested only when you use motion capture")
+        @unknown default: tr("Check in System Settings")
+        }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                notificationStatus = switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral: tr("Allowed")
+                case .denied: tr("Denied")
+                case .notDetermined: tr("Not requested")
+                @unknown default: tr("Check in System Settings")
+                }
+            }
+        }
+    }
+    private func openPrivacyPane(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
+    }
+}
 
 struct ContentView: View {
     @ObservedObject var store: LibraryStore
@@ -324,541 +473,7 @@ struct MediaCard: View {
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: compact ? 2 : 6))
                 .overlay(RoundedRectangle(cornerRadius: compact ? 2 : 6).strokeBorder(selected ? accent : .clear, lineWidth: 3))
-                .contentShape(Rectangle())
-                .help(selectionMode ? tr("选择这项影像") : item.name)
-            }.buttonStyle(.plain).accessibilityAddTraits(.isButton)
-            if !compact {
-                Text(item.name).font(.caption).lineLimit(1)
-                Text(localizedDate(item.date)).font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-        .overlay {
-            if hoverPreviewVisible {
-                VStack(alignment: .leading, spacing: 0) {
-                    Thumbnail(item: item).frame(width: 310, height: 230).clipped()
-                    HStack(spacing: 6) {
-                        if item.isVideo { Image(systemName: "play.fill") }
-                        Text(item.name).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(localizedDate(item.date))
-                    }.font(.caption).padding(.horizontal, 10).padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
-                }
-                .frame(width: 310)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-                .allowsHitTesting(false)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-        }
-        .zIndex(hoverPreviewVisible ? 5 : 0)
-        .onHover { hovering in
-            hoverWorkItem?.cancel()
-            if hovering {
-                let work = DispatchWorkItem { withAnimation(.easeOut(duration: 0.16)) { hoverPreviewVisible = true } }
-                hoverWorkItem = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
-            } else {
-                hoverPreviewVisible = false
-                hoverWorkItem = nil
-            }
-        }
-        .onDisappear { hoverWorkItem?.cancel(); hoverWorkItem = nil; hoverPreviewVisible = false }
-        .help(item.name + " · " + localizedDate(item.date)).accessibilityLabel(item.name).accessibilityAddTraits(.isButton)
-    }
-}
-
-struct MediaPreview: View {
-    @ObservedObject var store: LibraryStore
-    let items: [MediaItem]
-    let initialItem: MediaItem
-    let onClose: () -> Void
-    let onToggleFullScreen: () -> Void
-    @StoredState private var selectedID: String
-    @StoredState private var showFilmstrip = true
-    @StoredState private var scale = 1.0
-    @StoredState private var held = false
-    @StoredState private var controlsVisible = true
-    @StoredState private var isFullScreen = false
-    @StoredState private var showInspector = false
-    @StoredState private var hoveredID: String?
-    @StoredState private var hoverPreviewID: String?
-    @StoredState private var hoverWorkItem: DispatchWorkItem?
-
-    init(store: LibraryStore, items: [MediaItem], initialItem: MediaItem, onClose: @escaping () -> Void = {}, onToggleFullScreen: @escaping () -> Void = {}) {
-        self.store = store
-        self.items = items.isEmpty ? [initialItem] : items
-        self.initialItem = initialItem
-        self.onClose = onClose
-        self.onToggleFullScreen = onToggleFullScreen
-        _selectedID = StoredState(initialValue: initialItem.id)
-    }
-
-    private var item: MediaItem { store.state.items.first(where: { $0.id == selectedID }) ?? items.first(where: { $0.id == selectedID }) ?? initialItem }
-    private var selectedIndex: Int { items.firstIndex(where: { $0.id == selectedID }) ?? 0 }
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                if controlsVisible {
-                    HStack(spacing: 14) {
-                        Button(action: onClose) { Image(systemName: "xmark.circle.fill").font(.title2) }
-                            .buttonStyle(.plain).foregroundStyle(.white.opacity(0.85)).keyboardShortcut(.cancelAction)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.name).font(.headline).lineLimit(1).foregroundStyle(.white)
-                            Text("\(localizedDate(item.date))  ·  \(selectedIndex + 1) / \(items.count)").font(.caption).foregroundStyle(.white.opacity(0.65))
-                        }
-                        Spacer()
-                        if item.isMotion { Label(tr("按住预览动态"), systemImage: "livephoto").font(.caption).foregroundStyle(.white.opacity(0.7)) }
-                        Button { changeZoom(by: -0.25) } label: { Image(systemName: "minus.magnifyingglass") }.help(tr("缩小"))
-                        Button { resetZoom() } label: { Text("\(Int(scale * 100))%") }.help(tr("适合窗口"))
-                        Button { changeZoom(by: 0.25) } label: { Image(systemName: "plus.magnifyingglass") }.help(tr("放大"))
-                        Button(action: onToggleFullScreen) {
-                            Label(tr(isFullScreen ? "退出全屏" : "全屏显示"), systemImage: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                        }.help(tr(isFullScreen ? "退出全屏" : "全屏显示"))
-                        Button { withAnimation(.easeInOut(duration: 0.18)) { showInspector.toggle() } } label: {
-                            Image(systemName: showInspector ? "info.circle.fill" : "info.circle")
-                        }.help(tr(showInspector ? "关闭影像信息" : "显示影像信息")).accessibilityLabel(tr(showInspector ? "关闭影像信息" : "显示影像信息"))
-                        Button { showFilmstrip.toggle() } label: { Image(systemName: showFilmstrip ? "rectangle.bottomthird.inset.filled" : "rectangle.bottomthird.inset.filled") }
-                            .help(tr(showFilmstrip ? "收起缩略图" : "展开缩略图"))
-                    }
-                    .buttonStyle(.plain).foregroundStyle(.white).padding(.horizontal, 22).padding(.vertical, 14)
-                    .background(.ultraThinMaterial.opacity(0.65))
-                }
-
-                GeometryReader { geometry in
-                    ZStack {
-                        if item.isVideo {
-                            MovieView(path: item.path, analysisError: item.error).frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else {
-                            ZoomablePhotoView(path: item.path, scale: $scale, isMotion: item.isMotion, onPress: { held = $0 }) { direction in navigate(direction) }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            if held, let path = item.companion { MotionPlayer(path: path).allowsHitTesting(false) }
-                        }
-                        HStack {
-                            navigationButton(direction: -1, symbol: "chevron.left")
-                            Spacer()
-                            navigationButton(direction: 1, symbol: "chevron.right")
-                        }.padding(.horizontal, 24)
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                }
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if controlsVisible && showFilmstrip {
-                    ScrollViewReader { proxy in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(spacing: 8) {
-                                ForEach(Array(items.enumerated()), id: \.element.id) { index, media in
-                                    Button { select(media) } label: {
-                                        Thumbnail(item: media)
-                                            .frame(width: 116, height: 116).clipped()
-                                            .overlay(alignment: .bottomTrailing) {
-                                                if media.isVideo { Image(systemName: "play.fill").font(.caption2).padding(5).foregroundStyle(.white).background(.black.opacity(0.65), in: Circle()).padding(4) }
-                                            }
-                                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(hoveredID == media.id ? accent : selectedID == media.id ? .white : .clear, lineWidth: 2))
-                                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    }.buttonStyle(.plain).id(media.id).accessibilityLabel("\(index + 1) / \(items.count), \(media.name)")
-                                        .onHover { hovering in updateFilmstripHover(media, hovering: hovering) }
-                                }
-                            }.padding(.horizontal, 20).padding(.vertical, 12)
-                        }
-                        .frame(height: 150)
-                        .background(Color(white: 0.08))
-                        .onAppear { proxy.scrollTo(selectedID, anchor: .center) }
-                        .onChange(of: selectedID) { _, id in withAnimation(.easeInOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) } }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if showInspector {
-                DetailView(store: store, item: item, onClose: { withAnimation(.easeInOut(duration: 0.18)) { showInspector = false } }, showsPreview: false)
-                    .frame(width: 360)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .overlay(alignment: .leading) { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1) }
-            }
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if let previewID = hoverPreviewID, let previewItem = items.first(where: { $0.id == previewID }) {
-                HStack {
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 0) {
-                        Thumbnail(item: previewItem).frame(width: 300, height: 220).clipped()
-                        HStack(spacing: 6) {
-                            if previewItem.isVideo { Image(systemName: "play.fill") }
-                            Text(previewItem.name).lineLimit(1)
-                            Spacer(minLength: 0)
-                            Text(localizedDate(previewItem.date))
-                        }.font(.caption).padding(.horizontal, 10).padding(.vertical, 8).background(.regularMaterial)
-                    }
-                    .frame(width: 300).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .clipShape(RoundedRectangle(cornerRadius: 12)).shadow(color: .black.opacity(0.45), radius: 18, y: 8)
-                    .padding(.trailing, 24).padding(.bottom, showFilmstrip ? 160 : 24)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                    .allowsHitTesting(false)
-                }
-            }
-        }
-        .frame(minWidth: 760, idealWidth: 1200, minHeight: 560, idealHeight: 820)
-        .background(.black)
-        .focusable()
-        .onKeyPress(.leftArrow) { navigate(-1); return .handled }
-        .onKeyPress(.rightArrow) { navigate(1); return .handled }
-        .onKeyPress(.escape) { onClose(); return .handled }
-        .onChange(of: initialItem.id) { _, id in selectedID = id; store.selectedID = id; resetZoom(); held = false }
-        .onChange(of: selectedID) { _, id in store.selectedID = id; store.selectedIDs = [id]; resetZoom(); held = false }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in isFullScreen = true }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in isFullScreen = false }
-        .onDisappear { hoverWorkItem?.cancel(); hoverWorkItem = nil; hoverPreviewID = nil }
-    }
-
-    private func navigationButton(direction: Int, symbol: String) -> some View {
-        Button { navigate(direction) } label: {
-            Image(systemName: symbol).font(.title3.weight(.semibold)).foregroundStyle(.white)
-                .frame(width: 42, height: 52).background(.black.opacity(0.32), in: RoundedRectangle(cornerRadius: 12))
-        }.buttonStyle(.plain).opacity(controlsVisible ? 0.8 : 0)
-    }
-
-    private func select(_ media: MediaItem) { selectedID = media.id; store.selectedID = media.id; store.selectedIDs = [media.id] }
-    private func updateFilmstripHover(_ media: MediaItem, hovering: Bool) {
-        hoverWorkItem?.cancel()
-        if hovering {
-            hoveredID = media.id
-            let id = media.id
-            let work = DispatchWorkItem { if hoveredID == id { withAnimation(.easeOut(duration: 0.16)) { hoverPreviewID = id } } }
-            hoverWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
-        } else if hoveredID == media.id {
-            hoveredID = nil
-            hoverPreviewID = nil
-            hoverWorkItem = nil
-        }
-    }
-    private func navigate(_ step: Int) {
-        guard !items.isEmpty else { return }
-        let next = min(max(selectedIndex + step, 0), items.count - 1)
-        selectedID = items[next].id
-    }
-    private func resetZoom() {
-        scale = 1
-    }
-    private func changeZoom(by step: Double) {
-        scale = min(8, max(1, scale + step))
-    }
-}
-
-private struct ZoomablePhotoView: NSViewRepresentable {
-    var path: String
-    @Binding var scale: Double
-    var isMotion: Bool
-    var onPress: (Bool) -> Void
-    var onSwipe: (Int) -> Void
-    func makeNSView(context: Context) -> ZoomablePhotoSurface {
-        let view = ZoomablePhotoSurface()
-        view.image = NSImage(contentsOfFile: path)
-        view.scale = scale
-        view.onScaleChange = { value in self.scale = value }
-        view.onPressChange = { pressed in if self.isMotion { self.onPress(pressed) } }
-        view.onSwipe = onSwipe
-        return view
-    }
-    func updateNSView(_ view: ZoomablePhotoSurface, context: Context) {
-        if view.imagePath != path { view.imagePath = path; view.image = NSImage(contentsOfFile: path); view.resetPan() }
-        view.onScaleChange = { value in self.scale = value }
-        view.onPressChange = { pressed in if self.isMotion { self.onPress(pressed) } }
-        view.onSwipe = onSwipe
-        if abs(view.scale - scale) > 0.01 { view.setZoom(scale) }
-    }
-}
-
-private final class ZoomablePhotoSurface: NSView {
-    var imagePath = ""
-    var image: NSImage? { didSet { needsDisplay = true } }
-    var scale = 1.0
-    var onScaleChange: ((Double) -> Void)?
-    var onPressChange: ((Bool) -> Void)?
-    var onSwipe: ((Int) -> Void)?
-    private var pan = CGPoint.zero
-    private var mouseStart: CGPoint?
-    private var panStart = CGPoint.zero
-    private var swipeDelta = 0.0
-    private var pressWorkItem: DispatchWorkItem?
-    override var acceptsFirstResponder: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // The preview is a dedicated window. Make its image surface the responder
-        // as soon as it is attached so the first trackpad pinch works immediately.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window else { return }
-            window.makeFirstResponder(self)
-        }
-    }
-
-    func setZoom(_ value: Double) {
-        scale = min(8, max(1, value))
-        if scale <= 1 { resetPan() }
-        else { clampPan() }
-        onScaleChange?(scale); needsDisplay = true
-    }
-    func resetPan() { pan = .zero; needsDisplay = true }
-    private func clampPan() {
-        guard let image, image.size.width > 0, image.size.height > 0 else { return }
-        let fit = min(bounds.width / image.size.width, bounds.height / image.size.height)
-        let limitX = max(0, (image.size.width * fit * scale - bounds.width) / 2)
-        let limitY = max(0, (image.size.height * fit * scale - bounds.height) / 2)
-        pan.x = min(limitX, max(-limitX, pan.x)); pan.y = min(limitY, max(-limitY, pan.y))
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.setFill(); bounds.fill()
-        guard let image, image.size.width > 0, image.size.height > 0 else {
-            let message = tr("无法打开此影像") as NSString
-            message.draw(at: NSPoint(x: 24, y: bounds.midY), withAttributes: [.foregroundColor: NSColor.white])
-            return
-        }
-        let fit = min(bounds.width / image.size.width, bounds.height / image.size.height)
-        let width = image.size.width * fit, height = image.size.height * fit
-        NSGraphicsContext.saveGraphicsState()
-        guard let context = NSGraphicsContext.current?.cgContext else { NSGraphicsContext.restoreGraphicsState(); return }
-        context.translateBy(x: bounds.midX + pan.x, y: bounds.midY + pan.y)
-        context.scaleBy(x: scale, y: scale)
-        image.draw(in: CGRect(x: -width / 2, y: -height / 2, width: width, height: height), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        NSGraphicsContext.restoreGraphicsState()
-    }
-
-    override func magnify(with event: NSEvent) {
-        let ratio = max(0.01, 1 + event.magnification)
-        let nextScale = min(8, max(1, scale * ratio))
-        guard nextScale != scale else { return }
-
-        // Keep the point beneath the pinch centered under the fingers while
-        // zooming, matching the expected macOS Photos trackpad behavior.
-        let anchor = convert(event.locationInWindow, from: nil)
-        let offset = CGPoint(x: anchor.x - bounds.midX, y: anchor.y - bounds.midY)
-        let appliedRatio = nextScale / scale
-        pan = CGPoint(
-            x: offset.x - appliedRatio * (offset.x - pan.x),
-            y: offset.y - appliedRatio * (offset.y - pan.y)
-        )
-        scale = nextScale
-        clampPan()
-        onScaleChange?(scale)
-        needsDisplay = true
-    }
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        mouseStart = convert(event.locationInWindow, from: nil)
-        panStart = pan
-        pressWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.onPressChange?(true) }
-        pressWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
-    }
-    override func mouseDragged(with event: NSEvent) {
-        guard let mouseStart else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        if scale > 1 { pan = CGPoint(x: panStart.x + point.x - mouseStart.x, y: panStart.y + point.y - mouseStart.y); clampPan(); needsDisplay = true }
-    }
-    override func mouseUp(with event: NSEvent) {
-        defer { mouseStart = nil }
-        pressWorkItem?.cancel(); pressWorkItem = nil; onPressChange?(false)
-        guard let mouseStart else { return }
-        let point = convert(event.locationInWindow, from: nil), dx = point.x - mouseStart.x
-        if event.clickCount == 2 { setZoom(scale > 1 ? 1 : 2) }
-        else if scale <= 1, abs(dx) > 70 { onSwipe?(dx < 0 ? 1 : -1) }
-    }
-    override func scrollWheel(with event: NSEvent) {
-        if scale > 1 {
-            pan = CGPoint(x: pan.x - event.deltaX, y: pan.y + event.deltaY)
-            clampPan()
-            needsDisplay = true
-        } else {
-            if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) { swipeDelta += event.scrollingDeltaX }
-            if event.phase == .ended || event.phase == .cancelled {
-                if abs(swipeDelta) > 45 { onSwipe?(swipeDelta < 0 ? 1 : -1) }
-                swipeDelta = 0
-            } else if abs(event.scrollingDeltaX) <= abs(event.scrollingDeltaY) { super.scrollWheel(with: event) }
-        }
-    }
-}
-
-@MainActor final class MediaBrowserWindowController: NSObject, NSWindowDelegate {
-    static let shared = MediaBrowserWindowController()
-    private var window: NSWindow?
-    private var openedID: String?
-
-    func show(store: LibraryStore, request: MediaItem, items: [MediaItem]) {
-        if let window, let host = window.contentView as? NSHostingView<MediaPreview> {
-            openedID = request.id
-            window.title = request.name
-            host.rootView = MediaPreview(store: store, items: items, initialItem: request, onClose: { [weak self] in self?.closeWindow() }, onToggleFullScreen: { [weak window] in window?.toggleFullScreen(nil) })
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-        closeWindow()
-        openedID = request.id
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = request.name
-        window.titleVisibility = .hidden
-        window.isReleasedWhenClosed = false
-        window.collectionBehavior = [.fullScreenPrimary, .managed]
-        let host = NSHostingView(rootView: MediaPreview(store: store, items: items, initialItem: request, onClose: { [weak self] in self?.closeWindow() }, onToggleFullScreen: { [weak window] in window?.toggleFullScreen(nil) }))
-        window.contentView = host
-        window.delegate = self
-        self.window = window
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    func closeWindow() {
-        guard let window else { openedID = nil; return }
-        self.window = nil
-        openedID = nil
-        window.delegate = nil
-        window.close()
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        window = nil
-        openedID = nil
-    }
-}
-struct Thumbnail: View {
-    let item: MediaItem
-    var body: some View {
-        GeometryReader { geo in
-            if let image = NSImage(contentsOf: LibraryPaths.thumbnail(item.id)) {
-                Image(nsImage: image).resizable().scaledToFill().frame(width: geo.size.width, height: geo.size.height).clipped()
-            } else { ZStack { Color.gray.opacity(0.12); Image(systemName: item.isVideo ? "film" : "photo").font(.largeTitle).foregroundStyle(.secondary) }.frame(width: geo.size.width, height: geo.size.height) }
-        }
-    }
-}
-struct MotionPlayer: NSViewRepresentable {
-    let path: String
-    func makeNSView(context: Context) -> PlayerSurface {
-        let view = PlayerSurface(); view.wantsLayer = true
-        let player = AVPlayer(url: URL(fileURLWithPath: path)); view.player = player
-        let layer = AVPlayerLayer(player: player); layer.videoGravity = .resizeAspect; view.layer?.backgroundColor = NSColor.black.cgColor; view.layer?.addSublayer(layer); view.videoLayer = layer
-        player.play()
-        return view
-    }
-    func updateNSView(_ nsView: PlayerSurface, context: Context) {}
-    static func dismantleNSView(_ nsView: PlayerSurface, coordinator: ()) { nsView.player?.pause(); nsView.player = nil }
-    final class PlayerSurface: NSView {
-        var player: AVPlayer?
-        var videoLayer: AVPlayerLayer?
-        override func layout() { super.layout(); videoLayer?.frame = bounds }
-    }
-}
-struct MovieView: View {
-    let path: String
-    var analysisError: String? = nil
-    var start: Double = 0
-    var seekRequest: UUID? = nil
-    @StoredState private var player: AVPlayer?
-    @StoredState private var playing = false
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.black
-            if let player { PlayerLayerView(player: player) }
-            TimelineView(.periodic(from: .now, by: 0.4)) { _ in
-                let duration = player?.currentItem?.duration.seconds ?? 0
-                let current = player?.currentTime().seconds ?? 0
-                let playerItem = player?.currentItem
-                let ready = playerItem?.status == .readyToPlay
-                let failure = analysisError ?? (playerItem?.status == .failed ? playerItem?.error?.localizedDescription : nil)
-                VStack(spacing: 6) {
-                    if let failure, !failure.isEmpty {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            Text(tr(failure)).font(.caption).lineLimit(3).textSelection(.enabled)
-                            Spacer(minLength: 0)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    } else if playerItem?.status == .unknown {
-                        HStack(spacing: 7) { ProgressView().controlSize(.small); Text(tr("正在读取视频…")).font(.caption) }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    HStack(spacing: 12) {
-                        Button {
-                            guard let player else { return }
-                            if playing { player.pause() } else { player.play() }
-                            playing.toggle()
-                        } label: { Image(systemName: playing ? "pause.fill" : "play.fill").frame(width: 24) }
-                            .buttonStyle(.plain).foregroundStyle(.white).accessibilityLabel(tr(playing ? "暂停" : "播放回忆")).disabled(!ready)
-                        Slider(value: Binding(get: { current.isFinite ? min(max(current, 0), max(duration, 0.1)) : 0 }, set: { player?.seek(to: CMTime(seconds: $0, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }), in: 0...max(duration.isFinite ? duration : 0, 0.1)).disabled(!ready)
-                        Text(ready ? "\(playbackTime(current)) / \(playbackTime(duration))" : tr(failure == nil ? "正在读取视频…" : "视频无法播放"))
-                            .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.8))
-                    }
-                }.padding(.horizontal, 14).padding(.vertical, 10).background(.ultraThinMaterial)
-            }
-        }
-        .onAppear { load() }
-        .onChange(of: path) { _, _ in load() }
-        .onChange(of: seekRequest) { _, _ in seek() }
-        .onDisappear { player?.pause(); playing = false }
-    }
-    private func load() { player?.pause(); player = AVPlayer(url: URL(fileURLWithPath: path)); playing = false; if start > 0 || seekRequest != nil { seek() } }
-    private func seek() { player?.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero); player?.play(); playing = true }
-    private func playbackTime(_ value: Double) -> String {
-        guard value.isFinite, value >= 0 else { return "0:00" }
-        return String(format: "%d:%02d", Int(value) / 60, Int(value) % 60)
-    }
-}
-
-private struct PlayerLayerView: NSViewRepresentable {
-    let player: AVPlayer
-    func makeNSView(context: Context) -> PlayerLayerSurface {
-        let view = PlayerLayerSurface(); view.wantsLayer = true; view.player = player; return view
-    }
-    func updateNSView(_ view: PlayerLayerSurface, context: Context) { view.player = player }
-}
-
-private final class PlayerLayerSurface: NSView {
-    var player: AVPlayer? { didSet { (layer as? AVPlayerLayer)?.player = player } }
-    override var wantsUpdateLayer: Bool { true }
-    override func makeBackingLayer() -> CALayer {
-        let video = AVPlayerLayer(); video.videoGravity = .resizeAspect; return video
-    }
-}
-struct DetailView: View {
-    @ObservedObject var store: LibraryStore
-    let item: MediaItem
-    var onClose: () -> Void = {}
-    var showsPreview = true
-    @StoredState private var second: Double = 0
-    @StoredState private var held = false
-    @StoredState private var showMotion = false
-    @StoredState private var showRecognizedText = false
-    @StoredState private var seekRequest: UUID?
-    @StoredState private var locationEditor = false
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack { Text(tr("影像详情")).font(.headline); Spacer(); Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain).help(tr("关闭影像详情")).accessibilityLabel(tr("关闭影像详情")) }
-                if showsPreview && (item.isVideo || showMotion) {
-                    MovieView(path: item.companion ?? item.path, analysisError: item.error, start: second, seekRequest: seekRequest).frame(height: 185).id(item.id)
-                    if showMotion { Button(tr("返回照片封面")) { showMotion = false } }
-                }
-                else if showsPreview {
-                    ZStack {
-                        if let image = NSImage(contentsOfFile: item.path) { Image(nsImage: image).resizable().scaledToFit() }
-                        if held, let companion = item.companion { MotionPlayer(path: companion) }
-                    }.frame(height: 185).background(.black.opacity(0.03)).clipShape(RoundedRectangle(cornerRadius: 10))
-                        .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 40, pressing: { held = $0 && item.isMotion }, perform: {})
-                }
-                Text(item.name).font(.headline).textSelection(.enabled)
-                if item.isMotion { Label(tr("动态照片 · 按住画面播放"), systemImage: "livephoto").font(.caption).foregroundStyle(accent) }
-                VStack(alignment: .leading, spacing: 8) {
-                    info(tr("时间"), localizedDate(item.date, time: true))
-                    info(tr("依据"), item.dateSource)
-                    info(tr("尺寸"), "\(item.width) × \(item.height)")
-                    info(item.isMotion ? tr("照片") : tr("文件"), ByteCountFormatter.string(fromByteCount: item.bytes, countStyle: .file))
-                    if let bytes = item.companionBytes { info(tr("动态"), ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
+         …7444 tokens truncated….companionBytes { info(tr("动态"), ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
                     if item.isVideo { info(tr("时长"), time(item.duration)); info(tr("音轨"), item.hasAudio ? tr("有") : tr("无")); info(tr("分析"), tr("已分析 \(item.analyzedFrames) 帧")) }
                     HStack(alignment: .top) {
                         Text(tr("定位")).foregroundStyle(.secondary).frame(width: 82, alignment: .leading)
@@ -982,6 +597,7 @@ struct PreferencesView: View {
                 Text(tr("LumaTrace · AI 相册")).font(.headline)
                 Text(tr("发行方：Clover F")).foregroundStyle(.secondary)
             }
+            PrivacyPermissionsView(store: store)
             Section(tr("时光穿梭")) {
                 Toggle(tr("自动生成回忆"), isOn: $store.state.memoryPreferences.enabled).disabled(store.isReadOnly).onChange(of: store.state.memoryPreferences.enabled) { _, _ in store.syncMemorySchedule() }
                 Picker(tr("重复频率"), selection: Binding(get: { store.state.memoryPreferences.repeatMode }, set: { store.state.memoryPreferences.repeatMode = $0; store.syncMemorySchedule() })) {

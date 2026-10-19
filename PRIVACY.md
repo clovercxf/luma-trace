@@ -4,6 +4,8 @@
 
 LumaTrace is a local-first macOS photo library published by Clover F. This policy describes the current desktop application.
 
+On first launch, the app displays a privacy overview and asks you to confirm that you have read and agree to this policy before opening the library. You can review the complete policy from that screen and later revisit permission status in Settings.
+
 ## Data stored on your Mac
 
 When you add folders, LumaTrace reads media that you select and creates a searchable library index, thumbnails, preferences, and (when requested) memory films on this Mac. Your original photos and videos remain in their existing locations. The app does not include a LumaTrace account, cloud library, advertising SDK, or analytics service.

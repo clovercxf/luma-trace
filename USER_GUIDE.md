@@ -4,12 +4,17 @@ LumaTrace organizes local photos and videos while leaving the original files whe
 
 ## First launch
 
-1. Open LumaTrace and choose **Monitored Folders** in the sidebar.
-2. Add one or more media folders. Grant macOS access when prompted.
+1. Review the privacy overview on first launch and accept the policy to continue. You can open the full policy from that screen.
+2. Open **Monitored Folders** and add one or more media folders. A macOS folder selection panel lets you choose exactly which locations LumaTrace can read.
 3. Choose **Start** in the lower-left analysis controls. The sidebar shows the current scanning path and stage. Indexed items appear as analysis completes.
-4. Choose **Settings** to select the interface language, configure video analysis, optional local Ollama, and memory schedules.
+4. Open **Settings → Privacy & Permissions** to review folder availability, camera authorization, and notification authorization. Camera permission is requested when you open motion capture; notification permission is requested when you enable reminders. Full Disk Access is not required.
+5. Choose **Settings** to select the interface language, configure video analysis, optional local Ollama, and memory schedules.
 
 The app stores its searchable index and thumbnails locally. It does not move or rewrite original media. Removing a monitored folder stops scanning it but keeps its source files and existing library records.
+
+## Install from the DMG
+
+Open `LumaTrace-<version>-macOS-<architecture>.dmg`, then drag **LumaTrace** onto **Applications**. The distributed local build is ad hoc signed and not notarized, so macOS may require you to confirm the first launch in Privacy & Security. Do not install builds from sources you do not trust.
 
 ## Browse and search
 
@@ -51,3 +56,7 @@ When a camera is available and camera access is granted, LumaTrace can save an a
 - **Install warning:** Local builds are not Developer ID signed or notarized. Gatekeeper can warn on first open.
 
 See [Privacy](PRIVACY.md) for data handling and [Testing notes](TESTING.md) for known limitations.
+
+## Privacy and permission checks
+
+The first-run screen explains local storage and network use and requires agreement before opening the library. If a drive is disconnected or access is revoked, use **Settings → Privacy & Permissions** to review the status, reconnect the disk, and add the folder again. macOS does not let apps silently grant themselves Full Disk Access. Camera and notification controls can open the relevant System Settings pane after a denial.

@@ -92,6 +92,7 @@ import ImageIO
             else { try? FileManager.default.removeItem(at: LibraryPaths.index) }
         }
         var cached = MediaItem(id: id, path: url.path, modified: try #require(values.contentModificationDate), bytes: Int64(try #require(values.fileSize)), kind: "video", date: .distantPast, dateSource: "文件修改时间")
+        cached.digest = "previously-verified-content"
         cached.analysisProfile = AnalysisProfile.key(video: true, deep: false, localModel: false, model: "")
         cached.analyzedFrames = 777
         try Data("existing-thumbnail-cache".utf8).write(to: LibraryPaths.thumbnail(id))

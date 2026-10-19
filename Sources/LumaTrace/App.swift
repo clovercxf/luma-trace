@@ -3,10 +3,17 @@ import AppKit
 
 struct LumaTraceApp: App {
     @AppStorage("timeimprint.language") private var language = AppLanguage.systemDefault.rawValue
+    @AppStorage("lumaTrace.privacyConsentVersion") private var privacyConsentVersion = ""
     @StateObject private var store = LibraryStore()
     var body: some Scene {
         WindowGroup {
-            ContentView(store: store).frame(minWidth: 900, minHeight: 600)
+            Group {
+                if privacyConsentVersion != "1" {
+                    PrivacyWelcomeView { privacyConsentVersion = "1" }
+                } else {
+                    ContentView(store: store).frame(minWidth: 900, minHeight: 600)
+                }
+            }
                 .environment(\.locale, AppLanguage(rawValue: language)?.locale ?? AppLanguage.systemDefault.locale)
         }.defaultSize(width: 1200, height: 800)
         .commands {

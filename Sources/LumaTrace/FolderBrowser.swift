@@ -134,7 +134,19 @@ struct FolderBrowserView: View {
                     Spacer()
                     Button(tr("取消"), action: close).keyboardShortcut(.cancelAction)
                     Button(browser.chosen.isEmpty ? tr("添加当前文件夹") : tr("添加 \(browser.chosen.count) 个文件夹")) {
-                        store.addRoots(browser.chosen.isEmpty ? [browser.location] : browser.chosen); close()
+                        let panel = NSOpenPanel()
+                        panel.title = tr("授予文件夹访问权限")
+                        panel.message = tr("macOS 将仅向 LumaTrace 授予你选择的文件夹访问权限。")
+                        panel.prompt = tr("授予访问")
+                        panel.directoryURL = browser.location
+                        panel.canChooseFiles = false
+                        panel.canChooseDirectories = true
+                        panel.allowsMultipleSelection = true
+                        panel.canCreateDirectories = false
+                        panel.begin { response in
+                            if response == .OK, !panel.urls.isEmpty { store.addRoots(panel.urls) }
+                            close()
+                        }
                     }.keyboardShortcut(.defaultAction).disabled(browser.loading || browser.error != nil || store.isReadOnly || (!browser.selection.isEmpty && browser.chosen.isEmpty))
                 }
             }.padding(12)
